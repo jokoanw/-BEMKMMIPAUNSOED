@@ -280,7 +280,7 @@
 
     <script>
         // MENGGANTI NAMA VARIABEL AGAR TIDAK BENTROK DENGAN SUPABASE BAWAAN
-        let sipoDB; 
+     let sipoDB; 
         let currentUserNIM = "";
         let currentUserName = "";
 
@@ -290,35 +290,35 @@
                 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6Y2d5dmxseGVocnNwZ2Jtb2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MzM2MjcsImV4cCI6MjA5MDEwOTYyN30.WPNv5ijYvPntNSlaxERse9LZHS3LwvyQsx9z-_KXgPI';
                 sipoDB = window.supabase.createClient(supabaseUrl, supabaseKey);
                 
-                // Pasang CCTV Real-time untuk Pengaturan
                 setupSettingsRealtime();
-                
-                // Ambil data dari Supabase
                 await refreshAllSettings();
             }
         }
 
-        // --- SISTEM PENGATURAN CLOUD (SUPABASE) ---
+        // --- SISTEM PENGATURAN CLOUD ---
         async function refreshAllSettings() {
-            const { data } = await sipoDB.from('sipo_settings').select('*');
-            if (data) {
-                data.forEach(item => {
-                    localStorage.setItem('sipo_' + item.id, JSON.stringify(item.value));
-                    if(item.id === 'config') {
-                        document.getElementById('set-passing').value = item.value.passing_grade;
-                        document.getElementById('set-angkatan').value = item.value.default_angkatan;
+            try {
+                const { data, error } = await sipoDB.from('sipo_settings').select('*');
+                if (data) {
+                    data.forEach(item => {
+                        // KITA SERAGAMKAN NAMANYA: sipo_config, sipo_kategori, sipo_periode
+                        localStorage.setItem('sipo_' + item.id, JSON.stringify(item.value));
+                        if(item.id === 'config') {
+                            if(document.getElementById('set-passing')) document.getElementById('set-passing').value = item.value.passing_grade;
+                            if(document.getElementById('set-angkatan')) document.getElementById('set-angkatan').value = item.value.default_angkatan;
+                        }
+                    });
+                    if(!document.getElementById('admin-dashboard-mini').classList.contains('hidden')) {
+                        renderListKategoriAdmin();
+                        renderListPeriodeAdmin();
                     }
-                });
-                if(!document.getElementById('admin-dashboard-mini').classList.contains('hidden')) {
-                    renderListKategoriAdmin();
-                    renderListPeriodeAdmin();
                 }
-            }
+            } catch (e) { console.error("Gagal sinkron pengaturan:", e); }
         }
 
         function setupSettingsRealtime() {
-            sipoDB.channel('settings-changes')
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sipo_settings' }, () => {
+            sipoDB.channel('main-channel')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'sipo_settings' }, () => {
                     refreshAllSettings();
                 })
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sipo_pengajuan' }, () => {
@@ -329,7 +329,12 @@
                     }
                 })
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sipo_users' }, (payload) => {
-                    if(currentUserNIM && payload.new.nim === currentUserNIM) bukaDashboardMahasiswa(payload.new);
+                    if(currentUserNIM && payload.new.nim === currentUserNIM) {
+                         // Update data lokal tanpa refresh dashboard penuh
+                         let oldData = JSON.parse(localStorage.getItem('user_current_data') || '{}');
+                         let newData = {...oldData, ...payload.new};
+                         bukaDashboardMahasiswa(newData);
+                    }
                     if(!document.getElementById('admin-dashboard-mini').classList.contains('hidden')) loadSpionaseDariSupabase();
                 })
                 .subscribe();
@@ -337,18 +342,19 @@
 
         async function simpanPengaturan() {
             const newVal = {
-                passing_grade: document.getElementById('set-passing').value,
-                default_angkatan: document.getElementById('set-angkatan').value
+                passing_grade: parseInt(document.getElementById('set-passing').value),
+                default_angkatan: parseInt(document.getElementById('set-angkatan').value)
             };
             await sipoDB.from('sipo_settings').update({ value: newVal }).eq('id', 'config');
-            alert("Pengaturan Berhasil Disinkronkan ke Semua Device!");
+            alert("Sinkronisasi Berhasil!");
         }
 
+        // --- MANAJEMEN ADMIN ---
         async function tambahKategori() {
             const nama = document.getElementById('add-kategori-nama').value;
             const bobot = document.getElementById('add-kategori-bobot').value;
             if(!nama || !bobot) return;
-            let kategori = JSON.parse(localStorage.getItem("sipo_kategori"));
+            let kategori = JSON.parse(localStorage.getItem("sipo_kategori") || "[]");
             kategori.push({ id: Date.now(), nama: nama, bobot: parseInt(bobot) });
             await sipoDB.from('sipo_settings').update({ value: kategori }).eq('id', 'kategori');
             document.getElementById('add-kategori-nama').value = "";
@@ -356,7 +362,7 @@
         }
 
         async function hapusKategori(id) {
-            let kategori = JSON.parse(localStorage.getItem("sipo_kategori"));
+            let kategori = JSON.parse(localStorage.getItem("sipo_kategori") || "[]");
             kategori = kategori.filter(k => k.id !== id);
             await sipoDB.from('sipo_settings').update({ value: kategori }).eq('id', 'kategori');
         }
@@ -366,77 +372,64 @@
             const start = document.getElementById('add-periode-start').value;
             const end = document.getElementById('add-periode-end').value;
             if(!nama || !start || !end) return;
-            let periode = JSON.parse(localStorage.getItem("sipo_periode"));
+            let periode = JSON.parse(localStorage.getItem("sipo_periode") || "[]");
             periode.push({ id: Date.now(), nama: nama, start: start, end: end });
             await sipoDB.from('sipo_settings').update({ value: periode }).eq('id', 'periode');
             document.getElementById('add-periode-nama').value = "";
         }
 
         async function hapusPeriode(id) {
-            let periode = JSON.parse(localStorage.getItem("sipo_periode"));
+            let periode = JSON.parse(localStorage.getItem("sipo_periode") || "[]");
             periode = periode.filter(p => p.id !== id);
             await sipoDB.from('sipo_settings').update({ value: periode }).eq('id', 'periode');
         }
 
-        // --- LOGIKA FORM & DASHBOARD (TETAP SAMA) ---
-        async function resetFactoryData() {
-            if(confirm("PERINGATAN! Hapus semua data?")) {
-                if(sipoDB) {
-                    await sipoDB.from('sipo_pengajuan').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-                    await sipoDB.from('sipo_users').delete().neq('nim', '0');
-                }
-                localStorage.clear();
-                location.reload();
-            }
-        }
-
+        // --- LOGIKA LOGIN & DASHBOARD ---
         async function loginMahasiswa() {
-            if(!sipoDB) return;
             const nim = document.getElementById('mhs-nim').value.trim().toUpperCase();
-            if(!nim) return;
+            if(!nim) return alert("NIM Kosong!");
             currentUserNIM = nim;
-            const { data } = await sipoDB.from('sipo_users').select('*').eq('nim', nim).maybeSingle();
+            const { data, error } = await sipoDB.from('sipo_users').select('*').eq('nim', nim).maybeSingle();
             if (data) {
+                localStorage.setItem('user_current_data', JSON.stringify(data));
                 bukaDashboardMahasiswa(data);
             } else {
                 document.getElementById('section-mhs').classList.add('hidden');
                 document.getElementById('main-header').classList.add('hidden');
                 document.getElementById('section-lengkapi-profil').classList.remove('hidden');
-                document.getElementById('reg-angkatan').value = JSON.parse(localStorage.getItem('sipo_config')).default_angkatan;
+                let config = JSON.parse(localStorage.getItem('sipo_config'));
+                document.getElementById('reg-angkatan').value = config ? config.default_angkatan : 2025;
             }
-        }
-
-        async function simpanProfilBaru() {
-            const nama = document.getElementById('reg-nama').value.trim();
-            const prodi = document.getElementById('reg-prodi').value;
-            const angkatan = document.getElementById('reg-angkatan').value.trim();
-            const newUser = { nim: currentUserNIM, nama: nama, prodi: prodi, angkatan: angkatan, poin: 0 };
-            await sipoDB.from('sipo_users').insert([newUser]);
-            document.getElementById('section-lengkapi-profil').classList.add('hidden');
-            bukaDashboardMahasiswa(newUser);
         }
 
         function bukaDashboardMahasiswa(userData) {
             currentUserName = userData.nama;
-            const config = JSON.parse(localStorage.getItem("sipo_config"));
+            const config = JSON.parse(localStorage.getItem("sipo_config") || '{"passing_grade":120}');
+            
             document.getElementById('section-mhs').classList.add('hidden');
             document.getElementById('main-header').classList.add('hidden');
             document.getElementById('dashboard-mhs').classList.remove('hidden');
+            
             document.getElementById('user-nim-display').innerText = userData.nim;
             document.getElementById('user-nama-display').innerText = userData.nama;
             document.getElementById('user-prodi-display').innerText = userData.prodi;
             document.getElementById('user-angkatan-display').innerText = userData.angkatan;
+            
             document.getElementById('target-grade').innerText = config.passing_grade;
             document.getElementById('user-poin-display').innerText = userData.poin;
+            
             let persentase = (userData.poin / config.passing_grade) * 100;
             document.getElementById('progress-bar').style.width = Math.min(persentase, 100) + '%';
-            if (userData.poin >= config.passing_grade) document.getElementById('btn-download-cert').classList.remove('hidden');
+            
+            if (userData.poin >= config.passing_grade) {
+                document.getElementById('btn-download-cert').classList.remove('hidden');
+            }
             loadDropdownKategoriMhs();
             loadRiwayatMhsDariSupabase();
         }
 
         function loadDropdownKategoriMhs() {
-            const kategori = JSON.parse(localStorage.getItem("sipo_kategori"));
+            const kategori = JSON.parse(localStorage.getItem("sipo_kategori") || "[]");
             const select = document.getElementById('input-kategori-kegiatan');
             select.innerHTML = '<option value="">Pilih Kategori...</option>';
             kategori.forEach(k => { select.innerHTML += `<option value="${k.bobot}">${k.nama} (${k.bobot})</option>`; });
@@ -446,7 +439,7 @@
             const nama = document.getElementById('input-nama-kegiatan').value;
             const bobot = document.getElementById('input-kategori-kegiatan').value;
             const link = document.getElementById('input-link-kegiatan').value;
-            if(!nama || !bobot || !link) return;
+            if(!nama || !bobot || !link) return alert("Lengkapi data!");
             const ajuan = { nim: currentUserNIM, nama: currentUserName, kegiatan: nama, link: link, poin: parseInt(bobot), status: "Menunggu", waktu: new Date().toLocaleString('id-ID'), alasan: "" };
             await sipoDB.from('sipo_pengajuan').insert([ajuan]);
             alert("Berhasil Diajukan!");
@@ -476,20 +469,20 @@
         }
 
         function renderListKategoriAdmin() {
-            const kategori = JSON.parse(localStorage.getItem("sipo_kategori"));
+            const kategori = JSON.parse(localStorage.getItem("sipo_kategori") || "[]");
             const container = document.getElementById('list-kategori-admin');
             container.innerHTML = "";
-            kategori?.forEach(k => {
+            kategori.forEach(k => {
                 container.innerHTML += `<div class="flex justify-between items-center p-2 bg-gray-50 border border-gray-100 rounded-lg text-[10px] mb-1"><span>${k.nama} (+${k.bobot})</span><button onclick="hapusKategori(${k.id})" class="text-red-500">Hapus</button></div>`;
             });
         }
 
         function renderListPeriodeAdmin() {
-            const periode = JSON.parse(localStorage.getItem("sipo_periode"));
+            const periode = JSON.parse(localStorage.getItem("sipo_periode") || "[]");
             const container = document.getElementById('list-periode-admin');
             const selectRekap = document.getElementById('select-rekap-periode');
             container.innerHTML = ""; selectRekap.innerHTML = "<option value=''>Pilih Periode...</option>";
-            periode?.forEach(p => {
+            periode.forEach(p => {
                 container.innerHTML += `<div class="p-2 bg-gray-50 border border-gray-100 rounded-lg text-[10px] mb-1 flex justify-between"><span>${p.nama}</span><button onclick="hapusPeriode(${p.id})" class="text-red-500">Hapus</button></div>`;
                 selectRekap.innerHTML += `<option value="${p.id}">${p.nama}</option>`;
             });
@@ -530,6 +523,15 @@
             data?.forEach(u => {
                 container.innerHTML += `<div class="p-2 bg-blue-50 border border-blue-100 rounded-lg mb-1 text-[9px] flex justify-between"><span>${u.nama}</span><b>${u.poin} Poin</b></div>`;
             });
+        }
+
+        async function resetFactoryData() {
+            if(confirm("Hapus semua data server?")) {
+                await sipoDB.from('sipo_pengajuan').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                await sipoDB.from('sipo_users').delete().neq('nim', '0');
+                localStorage.clear();
+                location.reload();
+            }
         }
 
         function generateToken() { document.getElementById('display-token').innerText = Math.floor(100000 + Math.random() * 900000); }
