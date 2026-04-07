@@ -292,6 +292,7 @@
         let currentUserName = "";
 
         async function initSystem() {
+            // Pasang nilai default di lokal dulu untuk jaga-jaga
             if(!localStorage.getItem("sipo_default_angkatan")) localStorage.setItem("sipo_default_angkatan", "2025");
             if(!localStorage.getItem("sipo_aturan_angkatan")) localStorage.setItem("sipo_aturan_angkatan", JSON.stringify([]));
             if(!localStorage.getItem("sipo_kategori")) {
@@ -314,8 +315,11 @@
                 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6Y2d5dmxseGVocnNwZ2Jtb2tzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MzM2MjcsImV4cCI6MjA5MDEwOTYyN30.WPNv5ijYvPntNSlaxERse9LZHS3LwvyQsx9z-_KXgPI';
                 sipoDB = window.supabase.createClient(supabaseUrl, supabaseKey);
                 
-                setupSettingsRealtime();
+                // 1. KUNCI PENTING: Tarik data dari server saat web dibuka
                 await refreshAllSettings();
+                
+                // 2. NYALAKAN SEMUA CCTV
+                setupSettingsRealtime();
             }
         }
 
@@ -345,7 +349,7 @@
         function setupSettingsRealtime() {
             sipoDB.channel('main-channel')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sipo_settings' }, () => {
-                    refreshAllSettings();
+                    refreshAllSettings(); // Update otomatis kalau Admin ganti Token/Aturan
                 })
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'sipo_pengajuan' }, () => {
                     if(currentUserNIM) loadRiwayatMhsDariSupabase();
@@ -401,7 +405,6 @@
                 document.getElementById('mhs-nim').value = nim;
                 
                 if (user) {
-                    // SKENARIO 1: MAHASISWA SUDAH TERDAFTAR (CEK PIN PRIBADI)
                     if (user.pin === authKode) {
                         localStorage.setItem('user_current_data', JSON.stringify(user));
                         bukaDashboardMahasiswa(user);
@@ -410,7 +413,6 @@
                         document.getElementById('mhs-token').value = "";
                     }
                 } else {
-                    // SKENARIO 2: MAHASISWA BARU (CEK TOKEN ADMIN UNTUK AKTIVASI)
                     const { data: tokenData } = await sipoDB.from('sipo_settings').select('value').eq('id', 'active_token').maybeSingle();
                     const adminToken = tokenData ? tokenData.value.token : "TidakAdaToken";
                     
@@ -552,14 +554,13 @@
 
         async function generateToken() { 
             const newToken = Math.floor(100000 + Math.random() * 900000).toString();
-            document.getElementById('display-token').innerText = newToken; 
+            document.getElementById('display-token').innerText = "Loading..."; 
             await sipoDB.from('sipo_settings').upsert({ id: 'active_token', value: { token: newToken } });
         }
 
-        function simpanDefaultAngkatan() {
-            localStorage.setItem("sipo_default_angkatan", document.getElementById('set-angkatan').value);
+        async function simpanDefaultAngkatan() {
             const newVal = { default_angkatan: parseInt(document.getElementById('set-angkatan').value) };
-            sipoDB.from('sipo_settings').upsert({ id: 'config', value: newVal });
+            await sipoDB.from('sipo_settings').upsert({ id: 'config', value: newVal });
             alert("Default Angkatan berhasil diperbarui!");
         }
 
@@ -696,12 +697,11 @@
         async function hapusSatuRiwayatAdminSupabase(id) {
             if(!confirm("Hapus riwayat ini dari database?")) return;
             await sipoDB.from('sipo_pengajuan').delete().eq('id', id);
-            loadRiwayatAdminDariSupabase();
         }
+
         async function hapusSemuaRiwayatAdminSupabase() {
             if(!confirm("YAKIN ingin mengosongkan SELURUH riwayat verifikasi dari database?")) return;
             await sipoDB.from('sipo_pengajuan').delete().neq('status', 'Menunggu');
-            loadRiwayatAdminDariSupabase();
         }
 
         async function prosesDokumenSupabase(idAjuan, nim, poinDitambah, statusBaru) {
@@ -717,7 +717,6 @@
                 const { data: user } = await sipoDB.from('sipo_users').select('poin').eq('nim', nim).single();
                 if(user) await sipoDB.from('sipo_users').update({ poin: user.poin + poinDitambah }).eq('nim', nim);
             }
-            loadAntrianAdminDariSupabase(); loadRiwayatAdminDariSupabase(); loadSpionaseDariSupabase();
         }
 
         async function loadSpionaseDariSupabase() {
@@ -803,5 +802,6 @@
             doc.save(`Sertifikat_SIPO_${currentUserNIM}.pdf`);
         }
     </script>
+   
 </body>
 </html>
