@@ -233,16 +233,16 @@
                     </button>
 
                     <div id="menu-pengaturan" class="hidden p-4 bg-white space-y-3 border-t border-gray-100">
-
-                        <div class="flex gap-3">
-
-                            <div class="w-1/2">
-
-                                <label class="text-[9px] uppercase text-gray-400 font-bold ml-1">Passing Grade</label>
-
-                                <input type="number" id="set-passing" class="input-field w-full mt-1 px-3 py-2 rounded-lg text-xs font-bold">
-
-                            </div>
+                        <p class="text-[9px] text-gray-500 italic mb-2">Tentukan target poin kelulusan untuk masing-masing angkatan.</p>
+                        
+                        <div id="list-aturan-angkatan" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                        
+                        <div class="flex gap-2 border-t border-gray-100 pt-3">
+                            <input type="number" id="add-aturan-angkatan" placeholder="Angkatan (Cth: 2024)" class="input-field w-1/2 px-3 py-2 rounded-lg text-[10px]">
+                            <input type="number" id="add-aturan-passing" placeholder="Target Poin" class="input-field w-1/2 px-3 py-2 rounded-lg text-[10px]">
+                        </div>
+                        <button onclick="tambahAturanAngkatan()" class="w-full border border-black text-black py-2 rounded-lg text-[9px] font-bold uppercase hover:bg-black hover:text-white transition-all">Tambah Aturan Kelulusan</button>
+                    </div>
 
                             <div class="w-1/2">
 
